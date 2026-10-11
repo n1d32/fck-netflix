@@ -44,3 +44,6 @@ App.vue
   with `showModal()` (focus trap, Escape-to-close and the backdrop come from the
   element itself). The video is rendered before playback starts, so the default
   subtitle track is already enabled when `play()` is called.
+- **Fullscreen:** the target is `.player__shell`, an inner wrapper holding both
+  the video and the controls — never the `<dialog>` itself, which is already in
+  the top layer and cannot reliably be moved into the fullscreen top layer.

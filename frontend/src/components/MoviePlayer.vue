@@ -21,6 +21,9 @@ interface LoadedSubtitle extends SubtitleTrack {
 }
 
 const dialog = ref<HTMLDialogElement | null>(null)
+// Fullscreen target: a plain element, never the modal dialog itself, because a
+// modal dialog already lives in the top layer and browsers refuse to move it.
+const shell = ref<HTMLElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
 const videoUrl = ref<string | null>(null)
 const tracks = ref<LoadedSubtitle[]>([])
@@ -202,10 +205,19 @@ function onVolumeInput(event: Event): void {
 }
 
 async function toggleFullscreen(): Promise<void> {
-  if (document.fullscreenElement !== null) {
-    await document.exitFullscreen()
-  } else {
-    await dialog.value?.requestFullscreen()
+  const element = shell.value
+  if (element === null) return
+
+  try {
+    if (document.fullscreenElement !== null) {
+      await document.exitFullscreen()
+    } else {
+      await element.requestFullscreen()
+    }
+  } catch (caught) {
+    // Never fail silently: the browser can refuse to go fullscreen.
+    console.error('Fullscreen request failed', caught)
+    playbackNotice.value = 'Fullscreen is not available in this window.'
   }
 }
 
@@ -247,97 +259,99 @@ function formatTime(seconds: number): string {
 
 <template>
   <dialog ref="dialog" class="player" :aria-label="movie.title" @close="emit('close')">
-    <div class="player__stage">
-      <video
-        v-if="videoUrl"
-        ref="video"
-        class="player__video"
-        :src="videoUrl"
-        playsinline
-        @click="togglePlay"
-        @play="onPlayStateChange"
-        @pause="onPlayStateChange"
-        @timeupdate="onTimeUpdate"
-        @loadedmetadata="onMetadata"
-      >
-        <track
-          v-for="track in tracks"
-          :key="track.fileName"
-          :src="track.url"
-          :label="track.label"
-          kind="subtitles"
-        />
-      </video>
+    <div ref="shell" class="player__shell">
+      <div class="player__stage">
+        <video
+          v-if="videoUrl"
+          ref="video"
+          class="player__video"
+          :src="videoUrl"
+          playsinline
+          @click="togglePlay"
+          @play="onPlayStateChange"
+          @pause="onPlayStateChange"
+          @timeupdate="onTimeUpdate"
+          @loadedmetadata="onMetadata"
+        >
+          <track
+            v-for="track in tracks"
+            :key="track.fileName"
+            :src="track.url"
+            :label="track.label"
+            kind="subtitles"
+          />
+        </video>
 
-      <p v-if="isLoading" class="player__status">Loading…</p>
-      <p v-else-if="error" class="player__status player__status--error" role="alert">
-        {{ error }}
-      </p>
-    </div>
+        <p v-if="isLoading" class="player__status">Loading…</p>
+        <p v-else-if="error" class="player__status player__status--error" role="alert">
+          {{ error }}
+        </p>
+      </div>
 
-    <div class="player__bar">
-      <input
-        class="player__seek"
-        type="range"
-        min="0"
-        :max="duration || 0"
-        step="0.1"
-        :value="currentTime"
-        aria-label="Seek"
-        @input="onSeekInput"
-      />
-
-      <div class="player__controls">
-        <span class="player__title" :title="movie.title">{{ movie.title }}</span>
-
-        <button type="button" class="player__button" @click="togglePlay">
-          {{ isPlaying ? 'Pause' : 'Play' }}
-        </button>
-
-        <span class="player__time">
-          {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
-        </span>
-
-        <button type="button" class="player__button" @click="toggleMute">
-          {{ isMuted ? 'Unmute' : 'Mute' }}
-        </button>
-
+      <div class="player__bar">
         <input
-          class="player__volume"
+          class="player__seek"
           type="range"
           min="0"
-          max="1"
-          step="0.05"
-          :value="volume"
-          aria-label="Volume"
-          @input="onVolumeInput"
+          :max="duration || 0"
+          step="0.1"
+          :value="currentTime"
+          aria-label="Seek"
+          @input="onSeekInput"
         />
 
-        <label class="player__field">
-          Subtitles
-          <select v-model="selectedTrack">
-            <option :value="SUBTITLES_OFF">Off</option>
-            <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
-              {{ track.label }}
-            </option>
-          </select>
-        </label>
+        <div class="player__controls">
+          <span class="player__title" :title="movie.title">{{ movie.title }}</span>
 
-        <label class="player__field">
-          Add subtitle
-          <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
-        </label>
+          <button type="button" class="player__button" @click="togglePlay">
+            {{ isPlaying ? 'Pause' : 'Play' }}
+          </button>
 
-        <button type="button" class="player__button" @click="toggleFullscreen">
-          {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
-        </button>
+          <span class="player__time">
+            {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+          </span>
 
-        <button type="button" class="player__button" @click="emit('close')">Close</button>
+          <button type="button" class="player__button" @click="toggleMute">
+            {{ isMuted ? 'Unmute' : 'Mute' }}
+          </button>
+
+          <input
+            class="player__volume"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            :value="volume"
+            aria-label="Volume"
+            @input="onVolumeInput"
+          />
+
+          <label class="player__field">
+            Subtitles
+            <select v-model="selectedTrack">
+              <option :value="SUBTITLES_OFF">Off</option>
+              <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
+                {{ track.label }}
+              </option>
+            </select>
+          </label>
+
+          <label class="player__field">
+            Add subtitle
+            <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
+          </label>
+
+          <button type="button" class="player__button" @click="toggleFullscreen">
+            {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
+          </button>
+
+          <button type="button" class="player__button" @click="emit('close')">Close</button>
+        </div>
       </div>
-    </div>
 
-    <p v-if="subtitleNotice" class="player__notice">{{ subtitleNotice }}</p>
-    <p v-if="playbackNotice" class="player__notice">{{ playbackNotice }}</p>
+      <p v-if="subtitleNotice" class="player__notice">{{ subtitleNotice }}</p>
+      <p v-if="playbackNotice" class="player__notice">{{ playbackNotice }}</p>
+    </div>
   </dialog>
 </template>
 
@@ -359,16 +373,18 @@ function formatTime(seconds: number): string {
   background: rgb(0 0 0 / 65%);
 }
 
-/* Fullscreen has to win over the windowed size above. */
-.player:fullscreen {
+/* Fullscreen targets the shell, not the dialog: see the shell ref comment. */
+.player__shell {
   display: flex;
   flex-direction: column;
+}
+
+.player__shell:fullscreen {
   width: 100vw;
   height: 100vh;
   max-width: none;
   max-height: none;
-  border: none;
-  border-radius: 0;
+  background: var(--color-surface);
 }
 
 .player__stage {
@@ -387,13 +403,13 @@ function formatTime(seconds: number): string {
   background: #000;
 }
 
-.player:fullscreen .player__stage {
+.player__shell:fullscreen .player__stage {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.player:fullscreen .player__video {
+.player__shell:fullscreen .player__video {
   height: 100%;
   max-height: none;
 }

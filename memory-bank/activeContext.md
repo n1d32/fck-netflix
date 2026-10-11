@@ -17,6 +17,9 @@ next feature to pick up.
   (width `clamp(320px, 50vw, 960px)`, video keeps its aspect ratio, capped at
   `60vh`); it autoplays on open with a muted fallback if the browser blocks
   sound, and the Fullscreen button now reflects the current state.
+- Fixed the fullscreen toggle: it now fullscreens the player's inner shell
+  instead of the modal `<dialog>` (a top-layer element that the browser refuses
+  to fullscreen), and a rejected request is reported instead of being swallowed.
 
 ## Next steps (candidates)
 - Persist the chosen folder handle in IndexedDB and re-request permission on
