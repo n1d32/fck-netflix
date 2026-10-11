@@ -9,8 +9,10 @@
 - Per-movie `movie.toml` metadata with folder-name fallback; auto-detection of
   video, poster and subtitle files; non-fatal `warnings`.
 - Poster grid with loading / empty / error / unsupported-browser states.
-- Movie player: play/pause, seek, volume/mute, subtitle select, add external
-  subtitle, fullscreen, close.
+- Movie player: a centered modal dialog over the grid (not a full-page view),
+  sized ~50vw with the video keeping its aspect ratio; autoplays on open (with a
+  muted fallback when the browser blocks sound) and offers play/pause, seek,
+  volume/mute, subtitle select, add external subtitle, fullscreen toggle and close.
 - SRT → WebVTT conversion; subtitle labelling from language codes.
 - 38 unit tests covering `fileName`, `mediaTypes`, `subtitleService` and
   `metadataLoader`.

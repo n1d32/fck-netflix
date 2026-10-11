@@ -10,14 +10,7 @@ const selectedMovie = ref<Movie | null>(null)
 </script>
 
 <template>
-  <MoviePlayer
-    v-if="selectedMovie"
-    :movie="selectedMovie"
-    :source="source"
-    @close="selectedMovie = null"
-  />
   <LibraryView
-    v-else
     :movies="movies"
     :poster-urls="posterUrls"
     :status="status"
@@ -25,5 +18,11 @@ const selectedMovie = ref<Movie | null>(null)
     :supported="source.isSupported"
     @choose="selectFolder"
     @select="selectedMovie = $event"
+  />
+  <MoviePlayer
+    v-if="selectedMovie"
+    :movie="selectedMovie"
+    :source="source"
+    @close="selectedMovie = null"
   />
 </template>

@@ -13,6 +13,10 @@ next feature to pick up.
 - Added the library layer behind a `LibrarySource` interface, the `movie.toml`
   metadata loader, the poster grid and the movie player with subtitle support.
 - Added Vitest unit tests for all pure logic.
+- Replaced the full-page player with a centered modal `<dialog>` over the grid
+  (width `clamp(320px, 50vw, 960px)`, video keeps its aspect ratio, capped at
+  `60vh`); it autoplays on open with a muted fallback if the browser blocks
+  sound, and the Fullscreen button now reflects the current state.
 
 ## Next steps (candidates)
 - Persist the chosen folder handle in IndexedDB and re-request permission on

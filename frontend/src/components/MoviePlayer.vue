@@ -20,25 +20,41 @@ interface LoadedSubtitle extends SubtitleTrack {
   url: string
 }
 
-const container = ref<HTMLElement | null>(null)
+const dialog = ref<HTMLDialogElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
 const videoUrl = ref<string | null>(null)
 const tracks = ref<LoadedSubtitle[]>([])
 const selectedTrack = ref<string>(SUBTITLES_OFF)
 const isPlaying = ref(false)
 const isMuted = ref(false)
+const isFullscreen = ref(false)
 const volume = ref(1)
 const currentTime = ref(0)
 const duration = ref(0)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 const subtitleNotice = ref<string | null>(null)
+const playbackNotice = ref<string | null>(null)
 
 // Object URLs created for subtitles, revoked when the player unmounts.
 const subtitleUrls: string[] = []
 
-onMounted(load)
+// Body overflow to restore when the modal closes.
+let previousBodyOverflow = ''
+
+onMounted(async () => {
+  // The element must be connected before it can be shown modally.
+  await nextTick()
+  dialog.value?.showModal()
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  previousBodyOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  await load()
+})
+
 onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  document.body.style.overflow = previousBodyOverflow
   for (const url of subtitleUrls) URL.revokeObjectURL(url)
 })
 
@@ -52,11 +68,39 @@ async function load(): Promise<void> {
       return
     }
     videoUrl.value = url
+    await nextTick()
     await loadSubtitles()
+    isLoading.value = false
+    await startPlayback()
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : 'Could not open the movie.'
   } finally {
     isLoading.value = false
+  }
+}
+
+/**
+ * Start playback. Opening the dialog is a user gesture, but browsers may still
+ * block unmuted autoplay, so fall back to a muted start and tell the user.
+ */
+async function startPlayback(): Promise<void> {
+  const element = video.value
+  if (element === null) return
+
+  element.volume = volume.value
+  try {
+    await element.play()
+  } catch (caught) {
+    if (!(caught instanceof DOMException) || caught.name !== 'NotAllowedError') return
+
+    element.muted = true
+    isMuted.value = true
+    playbackNotice.value = 'Autoplay was blocked by the browser, so playback started muted.'
+    try {
+      await element.play()
+    } catch {
+      playbackNotice.value = 'The browser blocked playback. Press Play to start.'
+    }
   }
 }
 
@@ -82,6 +126,11 @@ async function loadSubtitles(): Promise<void> {
   tracks.value = loaded
   selectedTrack.value =
     (loaded.find((track) => track.isDefault) ?? loaded[0])?.fileName ?? SUBTITLES_OFF
+
+  // Let Vue render the <track> elements before enabling the default one, so
+  // subtitles are already on screen when playback starts.
+  await nextTick()
+  applyTrackModes()
 }
 
 function applyTrackModes(): void {
@@ -156,8 +205,12 @@ async function toggleFullscreen(): Promise<void> {
   if (document.fullscreenElement !== null) {
     await document.exitFullscreen()
   } else {
-    await container.value?.requestFullscreen()
+    await dialog.value?.requestFullscreen()
   }
+}
+
+function onFullscreenChange(): void {
+  isFullscreen.value = document.fullscreenElement !== null
 }
 
 async function addSubtitle(event: Event): Promise<void> {
@@ -193,7 +246,7 @@ function formatTime(seconds: number): string {
 </script>
 
 <template>
-  <div ref="container" class="player">
+  <dialog ref="dialog" class="player" :aria-label="movie.title" @close="emit('close')">
     <div class="player__stage">
       <video
         v-if="videoUrl"
@@ -223,14 +276,6 @@ function formatTime(seconds: number): string {
     </div>
 
     <div class="player__bar">
-      <button type="button" class="player__button" @click="togglePlay">
-        {{ isPlaying ? 'Pause' : 'Play' }}
-      </button>
-
-      <span class="player__time">
-        {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
-      </span>
-
       <input
         class="player__seek"
         type="range"
@@ -242,71 +287,119 @@ function formatTime(seconds: number): string {
         @input="onSeekInput"
       />
 
-      <button type="button" class="player__button" @click="toggleMute">
-        {{ isMuted ? 'Unmute' : 'Mute' }}
-      </button>
+      <div class="player__controls">
+        <span class="player__title" :title="movie.title">{{ movie.title }}</span>
 
-      <input
-        class="player__volume"
-        type="range"
-        min="0"
-        max="1"
-        step="0.05"
-        :value="volume"
-        aria-label="Volume"
-        @input="onVolumeInput"
-      />
+        <button type="button" class="player__button" @click="togglePlay">
+          {{ isPlaying ? 'Pause' : 'Play' }}
+        </button>
 
-      <label class="player__field">
-        Subtitles
-        <select v-model="selectedTrack">
-          <option :value="SUBTITLES_OFF">Off</option>
-          <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
-            {{ track.label }}
-          </option>
-        </select>
-      </label>
+        <span class="player__time">
+          {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+        </span>
 
-      <label class="player__field">
-        Add subtitle
-        <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
-      </label>
+        <button type="button" class="player__button" @click="toggleMute">
+          {{ isMuted ? 'Unmute' : 'Mute' }}
+        </button>
 
-      <button type="button" class="player__button" @click="toggleFullscreen">
-        Fullscreen
-      </button>
-      <button type="button" class="player__button" @click="emit('close')">Close</button>
+        <input
+          class="player__volume"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          :value="volume"
+          aria-label="Volume"
+          @input="onVolumeInput"
+        />
+
+        <label class="player__field">
+          Subtitles
+          <select v-model="selectedTrack">
+            <option :value="SUBTITLES_OFF">Off</option>
+            <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
+              {{ track.label }}
+            </option>
+          </select>
+        </label>
+
+        <label class="player__field">
+          Add subtitle
+          <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
+        </label>
+
+        <button type="button" class="player__button" @click="toggleFullscreen">
+          {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
+        </button>
+
+        <button type="button" class="player__button" @click="emit('close')">Close</button>
+      </div>
     </div>
 
     <p v-if="subtitleNotice" class="player__notice">{{ subtitleNotice }}</p>
-  </div>
+    <p v-if="playbackNotice" class="player__notice">{{ playbackNotice }}</p>
+  </dialog>
 </template>
 
 <style scoped>
 .player {
+  width: clamp(320px, 50vw, 960px);
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  overflow: hidden;
+}
+
+.player::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
+/* Fullscreen has to win over the windowed size above. */
+.player:fullscreen {
   display: flex;
   flex-direction: column;
-  height: 100svh;
-  background: #000;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
 }
 
 .player__stage {
-  position: relative;
   display: grid;
   place-items: center;
+  min-height: 160px;
+  background: #000;
+}
+
+.player__video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 60vh;
+  object-fit: contain;
+  background: #000;
+}
+
+.player:fullscreen .player__stage {
+  display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.player__video {
-  width: 100%;
+.player:fullscreen .player__video {
   height: 100%;
-  background: #000;
+  max-height: none;
 }
 
 .player__status {
-  position: absolute;
-  padding: 16px;
+  padding: 24px;
   color: var(--color-text-muted);
 }
 
@@ -316,12 +409,28 @@ function formatTime(seconds: number): string {
 
 .player__bar {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
+}
+
+.player__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.player__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player__button {
@@ -336,15 +445,15 @@ function formatTime(seconds: number): string {
 }
 
 .player__time {
-  min-width: 96px;
+  min-width: 88px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   font-size: 14px;
 }
 
 .player__seek {
-  flex: 1;
-  min-width: 120px;
+  width: 100%;
+  margin: 0;
 }
 
 .player__volume {
@@ -371,7 +480,7 @@ function formatTime(seconds: number): string {
 
 .player__notice {
   margin: 0;
-  padding: 8px 16px;
+  padding: 8px 12px;
   color: #f5a623;
   font-size: 14px;
 }

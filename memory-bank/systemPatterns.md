@@ -10,7 +10,7 @@ App.vue
         │         status, error               └─ metadataLoader (pure)
         │                                          ├─ utils/fileName
         ├─ LibraryView ─ MovieGrid ─ MovieCard     └─ utils/mediaTypes
-        └─ MoviePlayer ─ subtitleService (pure)
+        └─ <dialog> MoviePlayer ─ subtitleService (pure)
 ```
 
 ### Layers
@@ -40,3 +40,7 @@ App.vue
 - **Play:** `MoviePlayer` → `source.getVideoUrl` (object URL) → `<video>`;
   subtitles → `source.readSubtitle` → `subtitleService.createVttBlobUrl` →
   `<track>`; the active track is toggled by index via `video.textTracks`.
+- **Open:** the grid stays mounted and the player is a modal `<dialog>` shown
+  with `showModal()` (focus trap, Escape-to-close and the backdrop come from the
+  element itself). The video is rendered before playback starts, so the default
+  subtitle track is already enabled when `play()` is called.
