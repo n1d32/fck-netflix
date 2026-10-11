@@ -192,7 +192,6 @@ function formatTime(seconds: number): string {
 }
 </script>
 
-
 <template>
   <div ref="container" class="player">
     <div class="player__stage">
