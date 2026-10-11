@@ -1,15 +1,17 @@
 <script setup lang="ts">
-// Application shell. Feature views are wired in here.
+import LibraryView from './components/LibraryView.vue'
+import { useLibrary } from './composables/useLibrary'
+
+const { source, movies, posterUrls, status, error, selectFolder } = useLibrary()
 </script>
 
 <template>
-  <main class="app">
-    <h1>Localflix</h1>
-  </main>
+  <LibraryView
+    :movies="movies"
+    :poster-urls="posterUrls"
+    :status="status"
+    :error="error"
+    :supported="source.isSupported"
+    @choose="selectFolder"
+  />
 </template>
-
-<style scoped>
-.app {
-  padding: 24px;
-}
-</style>
