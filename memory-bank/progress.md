@@ -13,6 +13,10 @@
   sized ~50vw with the video keeping its aspect ratio; autoplays on open (with a
   muted fallback when the browser blocks sound) and offers play/pause, seek,
   volume/mute, subtitle select, add external subtitle, fullscreen toggle and close.
+- Real fullscreen playback: the film takes the whole screen and the control bar
+  overlays it, auto-hiding after 3 s of inactivity while playing (fade + slide
+  down, nothing clickable while hidden) and reappearing on mouse move, tap or any
+  key press; it stays visible while paused or while the pointer/focus is on it.
 - SRT → WebVTT conversion; subtitle labelling from language codes.
 - 38 unit tests covering `fileName`, `mediaTypes`, `subtitleService` and
   `metadataLoader`.

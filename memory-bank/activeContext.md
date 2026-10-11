@@ -20,6 +20,11 @@ next feature to pick up.
 - Fixed the fullscreen toggle: it now fullscreens the player's inner shell
   instead of the modal `<dialog>` (a top-layer element that the browser refuses
   to fullscreen), and a rejected request is reported instead of being swallowed.
+- Real fullscreen: inside the shell, `.player__viewport` wraps film + bar so the
+  bar can overlay the film; in fullscreen the bar slides away after 3 s of idle
+  while playing and returns on mouse/key/tap activity, so the whole screen is
+  picture. The windowed dialog keeps its bar visible; the idle timer is cleared
+  on unmount.
 
 ## Next steps (candidates)
 - Persist the chosen folder handle in IndexedDB and re-request permission on

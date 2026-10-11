@@ -45,11 +45,21 @@ const subtitleUrls: string[] = []
 // Body overflow to restore when the modal closes.
 let previousBodyOverflow = ''
 
+// How long the fullscreen player stays idle before it hides its own chrome.
+const CONTROLS_HIDE_DELAY_MS = 3000
+const controlsVisible = ref(true)
+let hideTimer: ReturnType<typeof setTimeout> | undefined
+// True while the pointer or keyboard focus is on the controls: they must not
+// fade out under the user's hands.
+let isHoldingControls = false
+
 onMounted(async () => {
   // The element must be connected before it can be shown modally.
   await nextTick()
   dialog.value?.showModal()
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  document.addEventListener('mousemove', onActivity)
+  document.addEventListener('keydown', onActivity)
   previousBodyOverflow = document.body.style.overflow
   document.body.style.overflow = 'hidden'
   await load()
@@ -57,11 +67,21 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  document.removeEventListener('mousemove', onActivity)
+  document.removeEventListener('keydown', onActivity)
+  clearHideTimer()
   document.body.style.overflow = previousBodyOverflow
   for (const url of subtitleUrls) URL.revokeObjectURL(url)
 })
 
 watch(selectedTrack, applyTrackModes)
+
+// The windowed dialog always shows its bar; the fullscreen player only hides it
+// while playing, and never while paused or while the user is on the controls.
+watch([isFullscreen, isPlaying], ([fullscreen, playing]) => {
+  if (fullscreen && playing) showControls()
+  else pinControls()
+})
 
 async function load(): Promise<void> {
   try {
@@ -225,6 +245,43 @@ function onFullscreenChange(): void {
   isFullscreen.value = document.fullscreenElement !== null
 }
 
+/** Show the controls and, in fullscreen, restart the idle countdown. */
+function showControls(): void {
+  controlsVisible.value = true
+  clearHideTimer()
+  if (!isFullscreen.value || !isPlaying.value || isHoldingControls) return
+  hideTimer = setTimeout(() => {
+    controlsVisible.value = false
+  }, CONTROLS_HIDE_DELAY_MS)
+}
+
+/** Keep the controls on screen indefinitely (windowed, paused, or in use). */
+function pinControls(): void {
+  controlsVisible.value = true
+  clearHideTimer()
+}
+
+function onControlsEnter(): void {
+  isHoldingControls = true
+  pinControls()
+}
+
+function onControlsLeave(): void {
+  isHoldingControls = false
+  showControls()
+}
+
+function clearHideTimer(): void {
+  if (hideTimer === undefined) return
+  clearTimeout(hideTimer)
+  hideTimer = undefined
+}
+
+/** Pointer or keyboard activity: wake the controls up while in fullscreen. */
+function onActivity(): void {
+  if (isFullscreen.value) showControls()
+}
+
 async function addSubtitle(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -259,93 +316,108 @@ function formatTime(seconds: number): string {
 
 <template>
   <dialog ref="dialog" class="player" :aria-label="movie.title" @close="emit('close')">
-    <div ref="shell" class="player__shell">
-      <div class="player__stage">
-        <video
-          v-if="videoUrl"
-          ref="video"
-          class="player__video"
-          :src="videoUrl"
-          playsinline
-          @click="togglePlay"
-          @play="onPlayStateChange"
-          @pause="onPlayStateChange"
-          @timeupdate="onTimeUpdate"
-          @loadedmetadata="onMetadata"
+    <div
+      ref="shell"
+      class="player__shell"
+      :class="{ 'player__shell--idle': !controlsVisible }"
+      @mousemove="onActivity"
+      @touchstart="onActivity"
+    >
+      <!-- Positioning context for the bar, which overlays the film in fullscreen. -->
+      <div class="player__viewport">
+        <div class="player__stage">
+          <video
+            v-if="videoUrl"
+            ref="video"
+            class="player__video"
+            :src="videoUrl"
+            playsinline
+            @click="togglePlay"
+            @play="onPlayStateChange"
+            @pause="onPlayStateChange"
+            @timeupdate="onTimeUpdate"
+            @loadedmetadata="onMetadata"
+          >
+            <track
+              v-for="track in tracks"
+              :key="track.fileName"
+              :src="track.url"
+              :label="track.label"
+              kind="subtitles"
+            />
+          </video>
+
+          <p v-if="isLoading" class="player__status">Loading…</p>
+          <p v-else-if="error" class="player__status player__status--error" role="alert">
+            {{ error }}
+          </p>
+        </div>
+
+        <div
+          class="player__bar"
+          @mouseenter="onControlsEnter"
+          @mouseleave="onControlsLeave"
+          @focusin="onControlsEnter"
+          @focusout="onControlsLeave"
         >
-          <track
-            v-for="track in tracks"
-            :key="track.fileName"
-            :src="track.url"
-            :label="track.label"
-            kind="subtitles"
-          />
-        </video>
-
-        <p v-if="isLoading" class="player__status">Loading…</p>
-        <p v-else-if="error" class="player__status player__status--error" role="alert">
-          {{ error }}
-        </p>
-      </div>
-
-      <div class="player__bar">
-        <input
-          class="player__seek"
-          type="range"
-          min="0"
-          :max="duration || 0"
-          step="0.1"
-          :value="currentTime"
-          aria-label="Seek"
-          @input="onSeekInput"
-        />
-
-        <div class="player__controls">
-          <span class="player__title" :title="movie.title">{{ movie.title }}</span>
-
-          <button type="button" class="player__button" @click="togglePlay">
-            {{ isPlaying ? 'Pause' : 'Play' }}
-          </button>
-
-          <span class="player__time">
-            {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
-          </span>
-
-          <button type="button" class="player__button" @click="toggleMute">
-            {{ isMuted ? 'Unmute' : 'Mute' }}
-          </button>
-
           <input
-            class="player__volume"
+            class="player__seek"
             type="range"
             min="0"
-            max="1"
-            step="0.05"
-            :value="volume"
-            aria-label="Volume"
-            @input="onVolumeInput"
+            :max="duration || 0"
+            step="0.1"
+            :value="currentTime"
+            aria-label="Seek"
+            @input="onSeekInput"
           />
 
-          <label class="player__field">
-            Subtitles
-            <select v-model="selectedTrack">
-              <option :value="SUBTITLES_OFF">Off</option>
-              <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
-                {{ track.label }}
-              </option>
-            </select>
-          </label>
+          <div class="player__controls">
+            <span class="player__title" :title="movie.title">{{ movie.title }}</span>
 
-          <label class="player__field">
-            Add subtitle
-            <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
-          </label>
+            <button type="button" class="player__button" @click="togglePlay">
+              {{ isPlaying ? 'Pause' : 'Play' }}
+            </button>
 
-          <button type="button" class="player__button" @click="toggleFullscreen">
-            {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
-          </button>
+            <span class="player__time">
+              {{ formatTime(currentTime) }} / {{ formatTime(duration) }}
+            </span>
 
-          <button type="button" class="player__button" @click="emit('close')">Close</button>
+            <button type="button" class="player__button" @click="toggleMute">
+              {{ isMuted ? 'Unmute' : 'Mute' }}
+            </button>
+
+            <input
+              class="player__volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              :value="volume"
+              aria-label="Volume"
+              @input="onVolumeInput"
+            />
+
+            <label class="player__field">
+              Subtitles
+              <select v-model="selectedTrack">
+                <option :value="SUBTITLES_OFF">Off</option>
+                <option v-for="track in tracks" :key="track.fileName" :value="track.fileName">
+                  {{ track.label }}
+                </option>
+              </select>
+            </label>
+
+            <label class="player__field">
+              Add subtitle
+              <input type="file" accept=".srt,.vtt" @change="addSubtitle" />
+            </label>
+
+            <button type="button" class="player__button" @click="toggleFullscreen">
+              {{ isFullscreen ? 'Exit fullscreen' : 'Fullscreen' }}
+            </button>
+
+            <button type="button" class="player__button" @click="emit('close')">Close</button>
+          </div>
         </div>
       </div>
 
@@ -403,15 +475,45 @@ function formatTime(seconds: number): string {
   background: #000;
 }
 
-.player__shell:fullscreen .player__stage {
-  display: flex;
+/* In fullscreen the film takes the whole screen and the bar overlays it. The
+   viewport is the positioning context, not the shell: the fullscreen element
+   must keep the browser's own fixed positioning. */
+.player__shell:fullscreen .player__viewport {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+.player__shell:fullscreen .player__stage {
+  display: flex;
+  height: 100%;
 }
 
 .player__shell:fullscreen .player__video {
   height: 100%;
   max-height: none;
+}
+
+.player__shell:fullscreen .player__bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 1;
+  border-top: none;
+  background: rgb(0 0 0 / 72%);
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+
+.player__shell--idle:fullscreen .player__bar {
+  opacity: 0;
+  /* Out of the way of clicks so a tap still toggles playback. */
+  pointer-events: none;
+  transform: translateY(100%);
+}
+
+.player__shell--idle:fullscreen {
+  cursor: none;
 }
 
 .player__status {

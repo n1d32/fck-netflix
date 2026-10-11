@@ -44,6 +44,14 @@ App.vue
   with `showModal()` (focus trap, Escape-to-close and the backdrop come from the
   element itself). The video is rendered before playback starts, so the default
   subtitle track is already enabled when `play()` is called.
-- **Fullscreen:** the target is `.player__shell`, an inner wrapper holding both
-  the video and the controls — never the `<dialog>` itself, which is already in
-  the top layer and cannot reliably be moved into the fullscreen top layer.
+- **Fullscreen:** the target is `.player__shell`, an inner wrapper holding the
+  film and the controls — never the `<dialog>` itself, which is already in the
+  top layer and cannot reliably be moved into the fullscreen top layer. Inside
+  the shell, `.player__viewport` is the positioning context (the fullscreen
+  element must keep the browser's own `position: fixed`): in fullscreen the film
+  takes the whole screen and the bar is overlaid at the bottom. The chrome
+  auto-hides after 3 s of idle while playing (`--idle` class → fade, slide down,
+  `pointer-events: none`, hidden cursor) and comes back on mouse move, pointer
+  tap or key press; it never hides while paused or while the pointer/focus is on
+  it. The windowed dialog keeps its bar pinned. Escape exits fullscreen first
+  (browser behaviour), a second Escape closes the dialog.
